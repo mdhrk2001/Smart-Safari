@@ -1,7 +1,7 @@
 // src/screens/LiveSafariScreen.tsx
 
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, useWindowDimensions } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, Text, TouchableOpacity, useWindowDimensions, ActivityIndicator } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useFrameProcessor } from 'react-native-vision-camera';
 import { useTensorflowModel } from 'react-native-fast-tflite';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
@@ -15,44 +15,17 @@ import { postProcessYOLO, Detection } from '../utils/ObjectDetection';
 import { useGeofencing } from '../hooks/useGeofencing';
 import { speakNarration, stopNarration } from '../utils/AudioNarrator'; 
 
+// Firestore Imports
+import { db } from '../config/firebase';
+import { collection, getDocs } from 'firebase/firestore';
+
 // 1. Load the Model
-const MODEL_PATH = require('../../assets/models/wildlens_v2.tflite');
+const MODEL_PATH = require('../../assets/models/wildlens.tflite');
 
-// Dictionary to map class indices to UI info and TTS Narration
-const ANIMAL_DATA: Record<number, any> = {
-    0: {
-        name: 'Sri Lankan Elephant',
-        scientificName: 'Elephas maximus maximus',
-        status: 'Endangered',
-        narration: {
-            en: "The Sri Lankan elephant is one of three recognized subspecies of the Asian elephant. They are native to Sri Lanka and can often be found near water sources.",
-            si: "ශ්‍රී ලංකා අලියා ආසියානු අලියාගේ උප විශේෂයකි...",
-            ta: "இலங்கை யானை ஆசிய யானையின் ஒரு துணை இனமாகும்..."
-        }
-    },
-    1: {
-        name: 'Sri Lankan Leopard',
-        scientificName: 'Panthera pardus kotiya',
-        status: 'Endangered',
-        narration: {
-            en: "The Sri Lankan leopard is an apex predator endemic to Sri Lanka. It is highly adaptable and can be found in various habitats, including the dry evergreen forests of Yala.",
-            si: "ශ්‍රී ලංකා කොටියා ශ්‍රී ලංකාවට ආවේණික විලෝපිකයෙකි...",
-            ta: "இலங்கை சிறுத்தை இலங்கைக்கு உரித்தான ஒரு கொன்றுண்ணி..."
-        }
-    },
-    2: {
-        name: 'Sloth Bear',
-        scientificName: 'Melursus ursinus inornatus',
-        status: 'Vulnerable',
-        narration: {
-            en: "The Sri Lankan sloth bear is a subspecies of the sloth bear. They are primarily insectivorous, feeding heavily on termites and ants.",
-            si: "ශ්‍රී ලංකා මන්ද වලසා...",
-            ta: "இலங்கை கரடி..."
-        }
-    },
-};
+export default function LiveSafariScreen({ navigation, route }: any) {
+    // Determine Park ID (Fallback to 'yala' if not passed in route params)
+    const parkId = route?.params?.parkId || 'yala';
 
-export default function LiveSafariScreen({ navigation }: any) {
     // Setup Camera & Geofencing
     const device = useCameraDevice('back');
     const { hasPermission, requestPermission } = useCameraPermission();
@@ -63,9 +36,13 @@ export default function LiveSafariScreen({ navigation }: any) {
     const { resize } = useResizePlugin();
     const { width: screenWidth, height: screenHeight } = useWindowDimensions();
 
-    // UI State for Bottom Sheet
+    // UI & Data State
     const [detectedAnimal, setDetectedAnimal] = useState<any | null>(null);
     const [confidenceText, setConfidenceText] = useState("0%");
+    const [isLoadingData, setIsLoadingData] = useState(true);
+
+    // We use a Ref to store the Firebase data so the Worklet's runOnJS function can always access the latest data without stale closures
+    const animalDictRef = useRef<Record<number, any>>({});
 
     // Shared Values for AR Bounding Box (Runs on UI Thread)
     const boxTop = useSharedValue(0);
@@ -75,24 +52,53 @@ export default function LiveSafariScreen({ navigation }: any) {
     const isDetected = useSharedValue(false);
     const currentDetectedClass = useSharedValue<number | null>(null);
 
+    // Initial Setup: Request Camera Permission & Fetch Firestore Data
     useEffect(() => {
         requestPermission();
-    }, []);
+
+        const fetchAnimalData = async () => {
+            try {
+                setIsLoadingData(true);
+                const animalsRef = collection(db, 'parks', parkId, 'animals');
+                const snapshot = await getDocs(animalsRef);
+                
+                const fetchedDict: Record<number, any> = {};
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    // Map the Firestore document to its corresponding ML classIndex
+                    if (data.classIndex !== undefined) {
+                        fetchedDict[data.classIndex] = { id: doc.id, ...data };
+                    }
+                });
+
+                animalDictRef.current = fetchedDict;
+            } catch (error) {
+                console.error("Error fetching animal data from Firestore:", error);
+            } finally {
+                setIsLoadingData(false);
+            }
+        };
+
+        fetchAnimalData();
+    }, [parkId]);
 
     // TTS: Automatically trigger audio when entering a new Geofence Zone
     useEffect(() => {
         if (currentZone && currentZone.audioAutoPlay) {
             speakNarration(`Alert: ${currentZone.name}. ${currentZone.alertMessage}`, 'en');
         }
-
-        // Cleanup: Stop audio if the user leaves the screen or zone changes
         return () => stopNarration();
     }, [currentZone]);
 
     // TTS: Manual trigger for animal narration
     const handleListenPress = () => {
         if (detectedAnimal && detectedAnimal.narration) {
-            speakNarration(detectedAnimal.narration.en, 'en');
+            // Note: Update this to match however you structure your narration field in Firestore
+            const audioText = typeof detectedAnimal.narration === 'string' 
+                ? detectedAnimal.narration 
+                : detectedAnimal.narration?.en;
+            
+            if (audioText) speakNarration(audioText, 'en');
         }
     };
 
@@ -102,7 +108,14 @@ export default function LiveSafariScreen({ navigation }: any) {
             setDetectedAnimal(null);
             setConfidenceText("");
         } else {
-            setDetectedAnimal(ANIMAL_DATA[classIndex] || { name: 'Unknown Species', scientificName: '...', status: 'Unknown' });
+            // Pull the animal details from our Firestore-populated Reference
+            const animalData = animalDictRef.current[classIndex] || { 
+                name: 'Unknown Species', 
+                scientificName: 'Not registered in database', 
+                status: 'Unknown' 
+            };
+            
+            setDetectedAnimal(animalData);
             setConfidenceText(`${(confidence * 100).toFixed(0)}%`);
         }
     });
@@ -146,10 +159,10 @@ export default function LiveSafariScreen({ navigation }: any) {
             // PERFORMANCE FIX: Only clear the JS state once when the animal leaves
             if (currentDetectedClass.value !== null) {
                 currentDetectedClass.value = null;
-                updateUIState(null, 0); // Triggers the clear command
+                updateUIState(null, 0); 
             }
         }
-    }, [objectDetection]); // <--- THIS WAS THE MISSING CLOSING BRACKET
+    }, [objectDetection, screenWidth, screenHeight]); 
 
     // Animated Style for the Bounding Box
     const animatedBoxStyle = useAnimatedStyle(() => ({
@@ -182,9 +195,13 @@ export default function LiveSafariScreen({ navigation }: any) {
                 <TouchableOpacity onPress={() => { stopNarration(); navigation.goBack(); }} style={styles.iconButton}>
                     <Ionicons name="arrow-back" size={24} color="#fff" />
                 </TouchableOpacity>
-                <View style={styles.liveBadge}>
-                    <View style={styles.redDot} />
-                    <Text style={styles.liveText}>LIVE AI</Text>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {isLoadingData && <ActivityIndicator color="#fff" style={{ marginRight: 10 }} />}
+                    <View style={styles.liveBadge}>
+                        <View style={styles.redDot} />
+                        <Text style={styles.liveText}>LIVE AI</Text>
+                    </View>
                 </View>
             </SafeAreaView>
 
@@ -212,10 +229,10 @@ export default function LiveSafariScreen({ navigation }: any) {
                     <View style={styles.animalInfoContainer}>
                         <View style={{ flex: 1 }}>
                             <Text style={styles.animalName}>{detectedAnimal.name}</Text>
-                            <Text style={styles.scientificName}>{detectedAnimal.scientificName}</Text>
+                            <Text style={styles.scientificName}>{detectedAnimal.scientificName || 'Scientific name unavailable'}</Text>
                         </View>
                         <View style={styles.statusBadge}>
-                            <Text style={styles.statusText}>{detectedAnimal.status}</Text>
+                            <Text style={styles.statusText}>{detectedAnimal.status || 'Unknown'}</Text>
                         </View>
                     </View>
 

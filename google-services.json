@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "537903752022",
+    "project_id": "smart-safari-d8eb5",
+    "storage_bucket": "smart-safari-d8eb5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:537903752022:android:e08a6f122b37853a856cf7",
+        "android_client_info": {
+          "package_name": "com.mdhrk2001.WildLens"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "537903752022-6vk1p2f0g6e75l9fs61crnhmgv26r6tp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDx9G03Tf-YkVGGXrL9AiaZsv6kNpiQBjo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "537903752022-6vk1p2f0g6e75l9fs61crnhmgv26r6tp.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

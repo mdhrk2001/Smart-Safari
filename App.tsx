@@ -2,10 +2,10 @@
 
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'; // <-- New import
+import { createNativeStackNavigator, NativeStackScreenProps } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons'; // <-- For our tab icons
+import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Import Screens
@@ -20,11 +20,12 @@ import ParkSelectionScreen from './src/screens/ParkSelectionScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 
 // 1. Define types for our Tabs
+// Added { parkId: string } so each tab knows which park data to load
 export type MainTabParamList = {
-  Home: undefined;
-  TourPlanner: undefined;
-  Diary: undefined;
-  Profile: undefined;
+  Home: { parkId: string };
+  TourPlanner: { parkId: string };
+  Diary: { parkId: string };
+  Profile: { parkId: string };
 };
 
 // 2. Define types for our Main Stack
@@ -33,17 +34,23 @@ export type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
   ParkSelection: undefined;
-  MainTabs: undefined; // <-- The Tabs are now a single "Screen" in the stack
-  LiveSafari: undefined; // Kept in stack so it hides the bottom tabs when active
+  MainTabs: { parkId: string }; // <-- The Tabs now expect a parkId parameter
+  LiveSafari: undefined; 
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
+// Define props for MainTabs so it can read the route params passed from ParkSelection
+type MainTabsProps = NativeStackScreenProps<RootStackParamList, 'MainTabs'>;
+
 // 3. Create the Tab Navigator Component
-function MainTabs() {
-  // 👇 Call the hook here to get the device's safe area measurements
+function MainTabs({ route }: MainTabsProps) {
+  // Call the hook here to get the device's safe area measurements
   const insets = useSafeAreaInsets(); 
+  
+  // Extract the parkId passed from the ParkSelectionScreen
+  const { parkId } = route.params;
 
   return (
     <Tab.Navigator
@@ -72,16 +79,17 @@ function MainTabs() {
         },
         tabBarStyle: {
           paddingVertical: 8,
-          // 👇 Dynamically add the device's bottom inset to the height and padding
+          // Dynamically add the device's bottom inset to the height and padding
           height: 60 + insets.bottom, 
           paddingBottom: 10 + insets.bottom, 
         },
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} options={{ tabBarLabel: 'Home' }} />
-      <Tab.Screen name="TourPlanner" component={TourPlannerScreen} options={{ tabBarLabel: 'Map' }} />
-      <Tab.Screen name="Diary" component={DiaryScreen} options={{ tabBarLabel: 'Diary' }} />
-      <Tab.Screen name="Profile" component={ProfileScreen} options={{ tabBarLabel: 'Profile' }} />
+      {/* Pass the parkId down to each screen using initialParams */}
+      <Tab.Screen name="Home" component={HomeScreen} initialParams={{ parkId }} options={{ tabBarLabel: 'Home' }} />
+      <Tab.Screen name="TourPlanner" component={TourPlannerScreen} initialParams={{ parkId }} options={{ tabBarLabel: 'Map' }} />
+      <Tab.Screen name="Diary" component={DiaryScreen} initialParams={{ parkId }} options={{ tabBarLabel: 'Diary' }} />
+      <Tab.Screen name="Profile" component={ProfileScreen} initialParams={{ parkId }} options={{ tabBarLabel: 'Profile' }} />
     </Tab.Navigator>
   );
 }

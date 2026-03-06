@@ -1,21 +1,90 @@
 // src/screens/HomeScreen.tsx
 
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RouteProp } from '@react-navigation/native';
+import { MainTabParamList } from '../../App';
+import { auth, db } from '../config/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
-export default function HomeScreen({ navigation }: any) {
+// 1. Strictly type your props to catch the parkId
+type HomeScreenProps = {
+  navigation: NativeStackNavigationProp<any>;
+  route: RouteProp<MainTabParamList, 'Home'>;
+};
+
+export default function HomeScreen({ navigation, route }: HomeScreenProps) {
+  const { parkId } = route.params;
+
+  // 2. Add state for your dynamic data
+  const [parkName, setParkName] = useState('Loading...');
+  const [userName, setUserName] = useState('Explorer');
+  const [isLoading, setIsLoading] = useState(true);
+
+  // 3. Fetch data when the screen mounts or parkId changes
+  useEffect(() => {
+    const fetchHomeData = async () => {
+      try {
+        setIsLoading(true);
+
+        const currentUser = auth.currentUser;
+
+        if (currentUser) {
+          // A. Try to get the name from the Auth profile (usually works for Google Sign-In)
+          if (currentUser.displayName) {
+            setUserName(currentUser.displayName.split(' ')[0]);
+          } else {
+            // B. If not in Auth, fetch it from our Firestore 'users' collection (for Email Signups)
+            const userRef = doc(db, 'users', currentUser.uid);
+            const userSnap = await getDoc(userRef);
+
+            if (userSnap.exists() && userSnap.data().name) {
+              setUserName(userSnap.data().name.split(' ')[0]);
+            } else {
+              setUserName('Safari Planner'); // Ultimate fallback
+            }
+          }
+        }
+
+        // C. Fetch the park document we created earlier
+        const parkRef = doc(db, 'parks', parkId);
+        const parkSnap = await getDoc(parkRef);
+
+        if (parkSnap.exists()) {
+          setParkName(parkSnap.data().name); // Sets "Yala National Park"
+        } else {
+          setParkName('Unknown Park');
+          console.warn(`Park document with ID ${parkId} not found in Firestore.`);
+        }
+
+      } catch (error) {
+        console.error('Error fetching home data:', error);
+        setParkName('Offline Mode');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchHomeData();
+  }, [parkId]);
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header Section */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Ayubowan, Randika!</Text>
+            <Text style={styles.greeting}>Ayubowan, {userName}!</Text>
             <View style={styles.locationTag}>
               <Ionicons name="location-outline" size={16} color="#00C853" />
-              <Text style={styles.locationText}> Yala National Park</Text>
+              {isLoading ? (
+                <ActivityIndicator size="small" color="#00C853" style={{ marginLeft: 4 }} />
+              ) : (
+                <Text style={styles.locationText}> {parkName}</Text>
+              )}
             </View>
           </View>
           <View style={styles.weatherTag}>
@@ -76,7 +145,7 @@ export default function HomeScreen({ navigation }: any) {
           </View>
         </View>
       </ScrollView>
-      
+
     </SafeAreaView>
   );
 }
