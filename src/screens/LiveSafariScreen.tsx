@@ -5,7 +5,8 @@ import { View, StyleSheet, Text, TouchableOpacity, useWindowDimensions, Activity
 import { Camera, CameraProps, useCameraDevice, useCameraPermission, useFrameProcessor, useCameraFormat } from 'react-native-vision-camera';
 import { useTensorflowModel } from 'react-native-fast-tflite';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, useAnimatedProps, AnimatedProps } from 'react-native-reanimated';
+// UPDATED: Added withRepeat, withSequence, and withTiming for the pulsing animation
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, useAnimatedProps, AnimatedProps, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import { Worklets } from 'react-native-worklets-core';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -57,7 +58,6 @@ export default function LiveSafariScreen({ navigation, route }: any) {
     const [confidenceText, setConfidenceText] = useState("0%");
     const [isLoadingData, setIsLoadingData] = useState(true);
     
-    // NEW: State to track audio playback
     const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
     const [language, setLanguage] = useState('en');
@@ -152,7 +152,7 @@ export default function LiveSafariScreen({ navigation, route }: any) {
         setLanguage(code);
         setShowLangModal(false);
         stopNarration();
-        setIsPlayingAudio(false); // Reset audio state
+        setIsPlayingAudio(false); 
 
         const updatedRecents = [code, ...recentLanguages.filter(lang => lang !== code)].slice(0, 3);
         setRecentLanguages(updatedRecents);
@@ -181,8 +181,8 @@ export default function LiveSafariScreen({ navigation, route }: any) {
                     speakNarration(
                         audioText, 
                         language as any,
-                        () => setIsPlayingAudio(false), // Reset on done
-                        () => setIsPlayingAudio(false)  // Reset on error
+                        () => setIsPlayingAudio(false), 
+                        () => setIsPlayingAudio(false)  
                     );
                 }
             }
@@ -358,11 +358,13 @@ export default function LiveSafariScreen({ navigation, route }: any) {
                                 navigation.navigate('AnimalInfo', { animal: detectedAnimal, language: language });
                             }}
                         />
+                        {/* UPDATED: Pass isPlayingAudio to isActive prop */}
                         <ActionButton 
                             icon={isPlayingAudio ? "stop" : "volume-high"} 
                             label={isPlayingAudio ? "Stop" : "Listen"} 
                             color={isPlayingAudio ? "#D50000" : "#00C853"} 
                             onPress={handleListenPress} 
+                            isActive={isPlayingAudio}
                         />
                         <ActionButton icon="book" label="Log" color="#FF9100" />
                         <ActionButton icon="warning" label="Alert" color="#D50000" />
@@ -398,14 +400,40 @@ export default function LiveSafariScreen({ navigation, route }: any) {
     );
 }
 
-const ActionButton = ({ icon, label, color, onPress }: { icon: any, label: string, color: string, onPress?: () => void }) => (
-    <TouchableOpacity style={styles.actionBtn} onPress={onPress}>
-        <View style={[styles.actionIconCircle, { backgroundColor: color }]}>
-            <Ionicons name={icon} size={24} color="#fff" />
-        </View>
-        <Text style={styles.actionLabel}>{label}</Text>
-    </TouchableOpacity>
-);
+// UPDATED: ActionButton now uses Reanimated for a pulsing effect when isActive is true
+const ActionButton = ({ icon, label, color, onPress, isActive = false }: { icon: any, label: string, color: string, onPress?: () => void, isActive?: boolean }) => {
+    const scale = useSharedValue(1);
+
+    useEffect(() => {
+        if (isActive) {
+            // Pulse animation: scale up slightly, then back down, repeating forever
+            scale.value = withRepeat(
+                withSequence(
+                    withTiming(1.15, { duration: 600 }),
+                    withTiming(1, { duration: 600 })
+                ),
+                -1, // -1 means infinite loop
+                true // reverse
+            );
+        } else {
+            // Reset scale smoothly when audio stops
+            scale.value = withTiming(1, { duration: 200 });
+        }
+    }, [isActive]);
+
+    const animatedStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: scale.value }],
+    }));
+
+    return (
+        <TouchableOpacity style={styles.actionBtn} onPress={onPress}>
+            <Animated.View style={[styles.actionIconCircle, { backgroundColor: color }, animatedStyle]}>
+                <Ionicons name={icon} size={24} color="#fff" />
+            </Animated.View>
+            <Text style={styles.actionLabel}>{label}</Text>
+        </TouchableOpacity>
+    );
+};
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#000' },
