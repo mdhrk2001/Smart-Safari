@@ -56,6 +56,9 @@ export default function LiveSafariScreen({ navigation, route }: any) {
     const [detectedAnimal, setDetectedAnimal] = useState<any | null>(null);
     const [confidenceText, setConfidenceText] = useState("0%");
     const [isLoadingData, setIsLoadingData] = useState(true);
+    
+    // NEW: State to track audio playback
+    const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
     const [language, setLanguage] = useState('en');
     const [recentLanguages, setRecentLanguages] = useState<string[]>(['en']);
@@ -149,6 +152,7 @@ export default function LiveSafariScreen({ navigation, route }: any) {
         setLanguage(code);
         setShowLangModal(false);
         stopNarration();
+        setIsPlayingAudio(false); // Reset audio state
 
         const updatedRecents = [code, ...recentLanguages.filter(lang => lang !== code)].slice(0, 3);
         setRecentLanguages(updatedRecents);
@@ -161,23 +165,33 @@ export default function LiveSafariScreen({ navigation, route }: any) {
     };
 
     const handleListenPress = () => {
-        if (detectedAnimal && detectedAnimal.narration) {
-            let audioText = '';
-            if (typeof detectedAnimal.narration === 'string') {
-                audioText = detectedAnimal.narration;
-            } else {
-                audioText = detectedAnimal.narration[language] || detectedAnimal.narration['en'];
+        if (isPlayingAudio) {
+            stopNarration();
+            setIsPlayingAudio(false);
+        } else {
+            if (detectedAnimal && detectedAnimal.narration) {
+                let audioText = '';
+                if (typeof detectedAnimal.narration === 'string') {
+                    audioText = detectedAnimal.narration;
+                } else {
+                    audioText = detectedAnimal.narration[language] || detectedAnimal.narration['en'];
+                }
+                if (audioText) {
+                    setIsPlayingAudio(true);
+                    speakNarration(
+                        audioText, 
+                        language as any,
+                        () => setIsPlayingAudio(false), // Reset on done
+                        () => setIsPlayingAudio(false)  // Reset on error
+                    );
+                }
             }
-            if (audioText) speakNarration(audioText, language as any);
         }
     };
 
-    // NEW: Helper function to grab the correct localized name
     const getLocalizedName = () => {
         if (!detectedAnimal) return 'Scanning...';
-        // Legacy support in case you haven't updated all documents yet
         if (typeof detectedAnimal.name === 'string') return detectedAnimal.name;
-        // Return active language, fallback to english, fallback to unknown
         return detectedAnimal.name?.[language] || detectedAnimal.name?.['en'] || 'Unknown Species';
     };
 
@@ -187,7 +201,7 @@ export default function LiveSafariScreen({ navigation, route }: any) {
             setConfidenceText("");
         } else {
             const animalData = animalDictRef.current[classIndex] || {
-                name: { en: 'Unknown Species' }, // UPDATED fallback to match map structure
+                name: { en: 'Unknown Species' },
                 scientificName: 'Not registered in database',
                 status: 'Unknown'
             };
@@ -285,7 +299,7 @@ export default function LiveSafariScreen({ navigation, route }: any) {
             </GestureDetector>
 
             <SafeAreaView style={styles.topOverlay} edges={['top']}>
-                <TouchableOpacity onPress={() => { stopNarration(); navigation.goBack(); }} style={styles.iconButton}>
+                <TouchableOpacity onPress={() => { stopNarration(); setIsPlayingAudio(false); navigation.goBack(); }} style={styles.iconButton}>
                     <Ionicons name="arrow-back" size={24} color="#fff" />
                 </TouchableOpacity>
 
@@ -307,7 +321,6 @@ export default function LiveSafariScreen({ navigation, route }: any) {
 
             <Animated.View style={animatedBoxStyle}>
                 <View style={styles.labelTag}>
-                    {/* UPDATED: Calling getLocalizedName() for the AR label */}
                     <Text style={styles.labelText}>
                         {getLocalizedName()} <Text style={{ fontWeight: '300' }}>{confidenceText}</Text>
                     </Text>
@@ -326,7 +339,6 @@ export default function LiveSafariScreen({ navigation, route }: any) {
 
                     <View style={styles.animalInfoContainer}>
                         <View style={{ flex: 1 }}>
-                            {/* UPDATED: Calling getLocalizedName() for the UI Panel */}
                             <Text style={styles.animalName}>{getLocalizedName()}</Text>
                             <Text style={styles.scientificName}>{detectedAnimal.scientificName || 'Scientific name unavailable'}</Text>
                         </View>
@@ -336,18 +348,22 @@ export default function LiveSafariScreen({ navigation, route }: any) {
                     </View>
 
                     <View style={styles.actionRow}>
-                        {/* UPDATE: Added onPress to navigate and pass the detectedAnimal object */}
                         <ActionButton
                             icon="information-circle"
                             label="Info"
                             color="#2962FF"
                             onPress={() => {
                                 stopNarration();
-                                // UPDATED: Now we also pass the currently selected language!
+                                setIsPlayingAudio(false);
                                 navigation.navigate('AnimalInfo', { animal: detectedAnimal, language: language });
                             }}
                         />
-                        <ActionButton icon="volume-high" label="Listen" color="#00C853" onPress={handleListenPress} />
+                        <ActionButton 
+                            icon={isPlayingAudio ? "stop" : "volume-high"} 
+                            label={isPlayingAudio ? "Stop" : "Listen"} 
+                            color={isPlayingAudio ? "#D50000" : "#00C853"} 
+                            onPress={handleListenPress} 
+                        />
                         <ActionButton icon="book" label="Log" color="#FF9100" />
                         <ActionButton icon="warning" label="Alert" color="#D50000" />
                     </View>
